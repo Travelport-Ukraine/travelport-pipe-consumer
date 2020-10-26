@@ -1,4 +1,6 @@
-# Travelport Pipe Consumer
+# Travelport eStreaming Pipe Consumer
+
+Please check [product presentation](https://docs.google.com/presentation/d/1lZ23vQBUSnyJfxpbjfqPseImeDNVTNWnoJmf5C22hZU/edit?usp=sharing).
 
 Given example is created to illustrate how to process Travelport Pipe.
 
