@@ -5,10 +5,52 @@ const { promisify } = require('util');
 const numCPUs = require('os').cpus().length;
 
 const DEFAULT_PORT = 80;
-const log = console.log;
+const { log } = console;
 const brotliDecompress = promisify(zlib.brotliDecompress);
 
-if (cluster.isMaster) {
+async function process(data) {
+  const { body, headers } = data;
+  log(`Processing data. Headers: ${JSON.stringify(headers)}`);
+  log(`Compressed body length: ${body.length}`);
+
+  try {
+    const decompressedBody = await brotliDecompress(body);
+    log(`Decompressed body length: ${decompressedBody.length}`);
+  } catch (err) {
+    log('Decompression failed');
+  }
+}
+
+function handle(req, res) {
+  const { host, ...headers } = req.headers;
+  const market = headers['x-point-of-sale'];
+  const version = headers['x-csv-version-number'];
+  const pcc = headers['x-customer-pcc'];
+
+  log(`Request received: ${JSON.stringify({
+    host, market, version, pcc,
+  })}`);
+
+  const chunks = [];
+
+  // Collect chunks
+  req.on('data', (chunk) => chunks.push(chunk));
+
+  // Send response on end BEFORE processing starts
+  req.on('end', () => {
+    // Providing response
+    res.setHeader('Content-Length', 0);
+    res.setHeader('transfer-encoding', '');
+    res.writeHead(200);
+    res.end();
+
+    // Starting processing
+    const body = Buffer.concat(chunks);
+    process({ body, headers });
+  });
+}
+
+if (cluster.isPrimary) {
   // Starting cluster
   log(`Stream consumer started with ${numCPUs} cpus`);
 
@@ -23,45 +65,6 @@ if (cluster.isMaster) {
   });
 } else {
   // Processing data here
-  async function process(data) {
-    const { body, headers } = data;
-    log(`Processing data. Headers: ${JSON.stringify(headers)}`);
-    log(`Compressed body length: ${body.length}`);
-
-    try {
-      const decompressedBody = await brotliDecompress(body);
-      log(`Decompressed body length: ${decompressedBody.length}`);
-    } catch (err) {
-      log(`Decompression failed`);
-    }
-  }
-
-  function handle(req, res) {
-    const { host, ...headers } = req.headers;
-    const market = headers['x-point-of-sale'];
-    const version = headers['x-csv-version-number'];
-    const pcc = headers['x-customer-pcc'];
-
-    log(`Request received: ${JSON.stringify({ host, market, version, pcc })}`);
-
-    const chunks = [];
-
-    // Collect chunks    
-    req.on('data', chunk => chunks.push(chunk));
-
-    // Send response on end BEFORE processing starts
-    req.on('end', () => {
-      // Providing response
-      res.setHeader('Content-Length', 0);
-      res.setHeader('transfer-encoding', '');
-      res.writeHead(200);
-      res.end();
-
-      // Starting processing
-      const body = Buffer.concat(chunks);
-      process({ body, headers });
-    });
-  }
 
   const server = http.createServer((req, res) => {
     req.on('error', (err) => {
